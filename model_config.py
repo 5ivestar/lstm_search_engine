@@ -4,7 +4,7 @@ class ModelConfiguration:
         self.vector_size=200
         self.keep_prob=0.5
         self.batch_size=10
-        self.lstm_model_dir="model"
+        self.lstm_model_dir="model/lstm_model"
         self.scope_name="lstm_search"
         self.max_term_seq=3
         

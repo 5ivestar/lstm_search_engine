@@ -1,2 +1,4 @@
-model/*
-
+model/lstm_model/*
+model/w2v_model/*
+__pycache__*
+data/*

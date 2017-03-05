@@ -9,8 +9,8 @@ import data_handler as dh
 
 logging.basicConfig(level=logging.DEBUG,format="%(asctime)s %(levelname)-7s %(funcName)s %(lineno)d %(message)s")
 
-w2v_model_file_name="w2v_wiki.mod"
-kc_data_file_name="kc_data_small.csv"
+w2v_model_file_name="model/w2v_model/w2v_wiki.mod"
+kc_data_file_name="data/kc_data_small.csv"
 
 w2v_model=w2v_handler.load_word2vec_model(w2v_model_file_name,"","")
 data_handler=dh.KcDataHandler(kc_data_file_name,stm.SimpleStemmer(),w2v_model)
