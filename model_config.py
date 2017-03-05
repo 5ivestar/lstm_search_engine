@@ -11,5 +11,5 @@ class ModelConfiguration:
 class QueryProcessingModelConfiguration(ModelConfiguration):
     def __init__(self):
         super().__init__()
-        self.max_term_seq=100
+        self.max_term_seq=3
         self.batch_size=1

@@ -31,11 +31,11 @@ class LstmSearchModel:
             self.model_file=model_file
         
         if self.is_training_mode:
-            logging.info("initializing model...")
+            logging.info(mode," mode: initializing model...")
             self.create_lstm_model()
             self.lstm_init=True
         else: #query_processing mode
-            logging.info("loading model...")
+            logging.info(mode," mode:loading model...")
             self.load_lstm_model()
             self.lstm_init=False
             
@@ -48,17 +48,19 @@ class LstmSearchModel:
         if self.model_file is None:
             self.model_file=self.get_model_file_name()
         saver.restore(self.sess,self.model_file)
-        self.define_training_ops()()
+        with tf.variable_scope(self.config.scope_name,reuse=True) as scope:
+            self.define_training_ops(scope)
         
         
     def create_lstm_model(self):
-        self.define_training_ops()
+        with tf.variable_scope(self.config.scope_name) as scope:
+            self.define_training_ops(scope)
         init_op = tf.global_variables_initializer()
         logging.debug("initialization session start")
         self.sess.run(init_op)
         logging.debug("initialization session end")
     
-    def define_training_ops(self):
+    def define_training_ops(self,scope):
         logging.debug("defining variables")
         #for feeding document or query
         #feed will be like [sentence_id, term_id, sentence_embedding_index]
@@ -85,24 +87,25 @@ class LstmSearchModel:
         logging.debug("defining feedforward process")
         
         #calc lstm result
-        with tf.variable_scope("lstm_scope") as scope:
-            logging.debug("defining query process")
+        logging.debug("defining query process")
+        if not self.is_training_mode:
+            scope.reuse_variables()
+        result,state=tf.contrib.rnn.static_rnn(
+            lstm_bcell_drop
+            ,self.convert_to_lstm_input(self.query_inputs,self.early_stop_query)
+            ,initial_state=self.initial_state
+            ,sequence_length=self.early_stop_query)
+        self.query_outs=self.get_early_stop_outputs(result,self.early_stop_query)
+        
+        if self.is_training_mode:
+            scope.reuse_variables()
+            logging.debug("defining document process")
             result,state=tf.contrib.rnn.static_rnn(
                 lstm_bcell_drop
-                ,self.convert_to_lstm_input(self.query_inputs,self.early_stop_query)
+                ,self.convert_to_lstm_input(self.doc_inputs,self.early_stop_doc)
                 ,initial_state=self.initial_state
-                ,sequence_length=self.early_stop_query)
-            self.query_outs=self.get_early_stop_outputs(result,self.early_stop_query)
-            
-            if self.is_training_mode:
-                scope.reuse_variables()
-                logging.debug("defining document process")
-                result,state=tf.contrib.rnn.static_rnn(
-                    lstm_bcell_drop
-                    ,self.convert_to_lstm_input(self.doc_inputs,self.early_stop_doc)
-                    ,initial_state=self.initial_state
-                    ,sequence_length=self.early_stop_doc)
-                self.doc_outs=self.get_early_stop_outputs(result,self.early_stop_doc)
+                ,sequence_length=self.early_stop_doc)
+            self.doc_outs=self.get_early_stop_outputs(result,self.early_stop_doc)
             
         
         #translate query lstm result into document embedding space
@@ -201,7 +204,7 @@ class LstmSearchModel:
     
     def get_query_vector(self,query_w2v_seq):
         
-        feed={self.query_inpups: self.make_static_len_input(query_w2v_seq,self.max_term_seq)
+        feed={self.query_inputs: self.make_static_len_input([query_w2v_seq],self.max_term_seq)
                   ,self.early_stop_query: self.limit_term_seq_lens([len(query_w2v_seq)])
                   ,self.keep_prob: 1.0 #this is not train
                  }
