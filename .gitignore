@@ -1,4 +1,9 @@
+<<<<<<< HEAD
 model/lstm_model/*
 model/w2v_model/*
 __pycache__*
 data/*
+=======
+﻿w2v_wiki.mod*
+kc_data.csv*
+>>>>>>> 08ba1b5a0a454c41f5a985c43eb4b68b5972d378
