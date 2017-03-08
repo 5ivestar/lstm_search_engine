@@ -5,7 +5,7 @@ import model_config as model_config
 import numpy as np
 
 class LstmSearchModel:
-    def __init__(self,model_file=None,mode="query_processing"):
+    def __init__(self,model_file=None,mode="query_processing",doc_vecs=None,config=None):
         #we provide 2 mode
         #training: making new model, query_processing: loading model from file and process the query
         #no support for incremental learning
@@ -13,11 +13,17 @@ class LstmSearchModel:
             self.is_training_mode=True
             self.config=model_config.ModelConfiguration()
         elif mode=="query_processing":
+            if doc_vecs is None:
+                raise Error("query_processing mode need index document vectors")
+            else:
+                self.doc_vecs=doc_vecs
             self.is_training_mode=False
             self.config=model_config.QueryProcessingModelConfiguration()
         else:
-            logging.error("mode must be query_processing or training")
-            return
+            raise Exception("mode must be query_processing or training")
+        
+        if config is not None:
+            self.config=config
             
         self.vector_size=self.config.vector_size
         self.batch_size=self.config.batch_size
@@ -110,7 +116,7 @@ class LstmSearchModel:
             concatinated=tf.concat([self.querys_out,self.doc_outs], 1)
             
             #translate query lstm result into document embedding space
-            self.prediction=tf.transpose(tf.matmul(concatinated,self.w_h)+self.b_h,)
+            self.prediction=tf.sigmoid(tf.reshape(tf.matmul(concatinated,self.w_h)+self.b_h,[self.batch_size]))
         
             logging.debug("defining feed back phase")
         
@@ -120,10 +126,12 @@ class LstmSearchModel:
             self.train_step=tf.train.GradientDescentOptimizer(self.config.lr).minimize(self.loss)
         
         else: #query_processing mode
-            self.querys_outs=tf.concat([ self.sentence_outs for _ in range(self.docu_num)],1)
-            self.doc_outs=tf.placeholder("float",[len(self.do),self.max_term_seq,self.vector_size])
-            concatinated=tf.concat([self.querys_out,self.doc_outs], 1)
-            self.prediction=tf.transpose(tf.matmul(concatinated,self.w_h)+self.b_h,)
+            #self.sentence_outs=tf.reshape(self.sentence_outs,[self.vector_size])
+            doc_size=len(self.doc_vecs)
+            self.query_outs=tf.concat([ self.sentence_outs for _ in range(doc_size)],0)
+            self.doc_outs=tf.placeholder("float",[doc_size,self.vector_size])
+            concatinated=tf.concat([self.query_outs,self.doc_outs], 1)
+            self.prediction=tf.sigmoid(tf.reshape(tf.matmul(concatinated,self.w_h)+self.b_h,[doc_size]))
         
         logging.debug("defining ops complete")
         
@@ -155,7 +163,7 @@ class LstmSearchModel:
                 y.append(self.documents[random_index])
                 result.append(1.0)
             else:
-                random_index=(random_index+random.randint(0,len(self.querys)-2))%len(self.documents)
+                random_index=(random_index+random.randint(1,len(self.querys)-1))%len(self.documents)
                 y.append(self.documents[random_index])
                 result.append(0.0)
         x.extend(y)
@@ -178,11 +186,13 @@ class LstmSearchModel:
                   ,self.keep_prob: self.config.keep_prob
                  }
             #print self.make_static_len_input(query_vec_seqs,self.max_term_seq)
-            result=self.sess.run([self.train_step,self.loss,self.prediction],feed_dict=feed)
+            result=self.sess.run([self.train_step,self.loss,self.prediction,self.sentence_inputs,self.labels],feed_dict=feed)
             logging.debug("epock%d loss %f",i,result[1])
             if i%10==0:
                 logging.info("epock%d loss %f",i,result[1])
-                logging.info(result[2])
+                logging.debug(result[2])
+                logging.debug(result[3])
+                logging.debug(result[4])
             
         self.save_model()
     
@@ -216,16 +226,16 @@ class LstmSearchModel:
         self.sess.close()
         logging.info("session closed")
     
-    def get_query_vector(self,query_w2v_seq,doc_lstm_results):
+    def get_matching_vector(self,query_w2v_seq):
         
         feed={self.sentence_inputs: self.make_static_len_input([query_w2v_seq],self.max_term_seq)
                   ,self.early_stop: self.limit_term_seq_lens([len(query_w2v_seq)])
-                  ,sefl.docs_outs: doc_lstm_results
+                  ,self.doc_outs: self.doc_vecs
                   ,self.keep_prob: 1.0 #this is not train
                  }
         #print self.make_static_len_input(query_vec_seqs,self.max_term_seq)
         result=self.sess.run(self.prediction,feed_dict=feed)
-        return result[0]
+        return result
         
         
     #return all documents vectors which wre used in training 
