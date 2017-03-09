@@ -70,7 +70,7 @@ class LstmSearchModel:
         
         if self.is_training_mode:
             lstm_batch_size=self.batch_size*2
-            self.labels=tf.placeholder("float",[self.batch_size])
+            self.labels=tf.placeholder("float",[self.batch_size,2])
         else:
             lstm_batch_size=self.batch_size
         
@@ -90,8 +90,8 @@ class LstmSearchModel:
         lstm_bcell_drop=tf.contrib.rnn.DropoutWrapper(lstm_bcell, output_keep_prob=self.keep_prob)
 
         #lstm last output will be feeded to this regression node
-        self.w_h=tf.get_variable("weight",[self.vector_size*2,1],initializer=tf.random_normal_initializer())
-        self.b_h=tf.get_variable("biase",[1],initializer=tf.random_normal_initializer())
+        self.w_h=tf.get_variable("weight",[self.vector_size*2,2],initializer=tf.random_normal_initializer())
+        self.b_h=tf.get_variable("biase",[2],initializer=tf.random_normal_initializer())
         
         self.initial_state=lstm_bcell.zero_state(lstm_batch_size, tf.float32)
         
@@ -116,12 +116,12 @@ class LstmSearchModel:
             concatinated=tf.concat([self.querys_out,self.doc_outs], 1)
             
             #translate query lstm result into document embedding space
-            self.prediction=tf.sigmoid(tf.reshape(tf.matmul(concatinated,self.w_h)+self.b_h,[self.batch_size]))
+            self.prediction=tf.nn.softmax(tf.matmul(concatinated,self.w_h)+self.b_h)
         
             logging.debug("defining feed back phase")
         
             #learning
-            self.loss=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.prediction,labels=self.labels))
+            self.loss=tf.reduce_mean(-tf.reduce_sum(self.labels*tf.log(self.prediction),reduction_indices=[1]))
             logging.debug("defining optimization process")
             self.train_step=tf.train.GradientDescentOptimizer(self.config.lr).minimize(self.loss)
         
@@ -131,7 +131,7 @@ class LstmSearchModel:
             self.query_outs=tf.concat([ self.sentence_outs for _ in range(doc_size)],0)
             self.doc_outs=tf.placeholder("float",[doc_size,self.vector_size])
             concatinated=tf.concat([self.query_outs,self.doc_outs], 1)
-            self.prediction=tf.sigmoid(tf.reshape(tf.matmul(concatinated,self.w_h)+self.b_h,[doc_size]))
+            self.prediction=tf.nn.softmax(tf.matmul(concatinated,self.w_h)+self.b_h)
         
         logging.debug("defining ops complete")
         
@@ -161,11 +161,11 @@ class LstmSearchModel:
             
             if bool(random.getrandbits(1)):
                 y.append(self.documents[random_index])
-                result.append(1.0)
+                result.append([1.0,0])
             else:
                 random_index=(random_index+random.randint(1,len(self.querys)-1))%len(self.documents)
                 y.append(self.documents[random_index])
-                result.append(0.0)
+                result.append([0.0,1.0])
         x.extend(y)
         return x,result
     
@@ -186,13 +186,14 @@ class LstmSearchModel:
                   ,self.keep_prob: self.config.keep_prob
                  }
             #print self.make_static_len_input(query_vec_seqs,self.max_term_seq)
-            result=self.sess.run([self.train_step,self.loss,self.prediction,self.sentence_inputs,self.labels],feed_dict=feed)
+            result=self.sess.run([self.train_step,self.loss,self.prediction,self.sentence_inputs,self.labels,self.w_h],feed_dict=feed)
             logging.debug("epock%d loss %f",i,result[1])
             if i%10==0:
                 logging.info("epock%d loss %f",i,result[1])
                 logging.debug(result[2])
                 logging.debug(result[3])
                 logging.debug(result[4])
+                logging.debug(result[5])
             
         self.save_model()
     

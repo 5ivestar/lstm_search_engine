@@ -8,7 +8,7 @@ logging.basicConfig(level=logging.DEBUG,format="%(asctime)s %(levelname)-7s %(fu
 class ModelTestingConfig(model_config.ModelConfiguration):
     def __init__(self):
         super().__init__()
-        self.lr=1.0
+        self.lr=0.01
         self.vector_size=3
         self.keep_prob=0.5
         self.batch_size=100
