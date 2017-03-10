@@ -87,7 +87,7 @@ class LstmSearchModel:
         
         #define lstm
         lstm_bcell=tf.contrib.rnn.BasicLSTMCell(self.vector_size,lstm_batch_size)
-        lstm_bcell_drop=tf.contrib.rnn.DropoutWrapper(lstm_bcell, output_keep_prob=self.keep_prob)
+        stm_bcell_drop=tf.contrib.rnn.DropoutWrapper(lstm_bcell, output_keep_prob=self.keep_prob)
 
         #lstm last output will be feeded to this regression node
         self.w_h=tf.get_variable("weight",[self.vector_size*2,2],initializer=tf.random_normal_initializer())
@@ -101,22 +101,24 @@ class LstmSearchModel:
         logging.debug("defining lstm process")
         if not self.is_training_mode:
             scope.reuse_variables()
-            
-        result,state=tf.contrib.rnn.static_rnn(
+        self.converted_input=self.convert_to_lstm_input(self.sentence_inputs,lstm_batch_size)
+        self.result,state=tf.contrib.rnn.static_rnn(
             lstm_bcell_drop
             ,self.convert_to_lstm_input(self.sentence_inputs,lstm_batch_size)
             ,initial_state=self.initial_state
-            ,sequence_length=self.early_stop)
+            #,sequence_length=self.early_stop
+            )
         
-        self.sentence_outs=self.get_early_stop_outputs(result,self.early_stop,lstm_batch_size)
+        self.sentence_outs=self.get_early_stop_outputs(self.result,self.early_stop,lstm_batch_size)
         
         
         if self.is_training_mode:
             self.querys_out,self.doc_outs=tf.split(self.sentence_outs,[self.batch_size,self.batch_size],0)
-            concatinated=tf.concat([self.querys_out,self.doc_outs], 1)
+            self.concatinated=tf.concat([self.querys_out,self.doc_outs], 1)
             
             #translate query lstm result into document embedding space
-            self.prediction=tf.nn.softmax(tf.matmul(concatinated,self.w_h)+self.b_h)
+            self.matmal=tf.matmul(self.concatinated,self.w_h)+self.b_h
+            self.prediction=tf.nn.softmax(self.matmal)
         
             logging.debug("defining feed back phase")
         
@@ -186,14 +188,33 @@ class LstmSearchModel:
                   ,self.keep_prob: self.config.keep_prob
                  }
             #print self.make_static_len_input(query_vec_seqs,self.max_term_seq)
-            result=self.sess.run([self.train_step,self.loss,self.prediction,self.sentence_inputs,self.labels,self.w_h],feed_dict=feed)
+            result=self.sess.run([self.train_step,
+                                  self.loss,
+                                  self.prediction,
+                                  self.sentence_inputs,
+                                  self.labels,
+                                  self.w_h,
+                                  self.matmal,
+                                  self.sentence_outs,
+                                  self.result,
+                                  self.early_stop,
+                                  self.converted_input,
+                                  self.concatinated,
+                                  self.initial_state],feed_dict=feed)
             logging.debug("epock%d loss %f",i,result[1])
             if i%10==0:
                 logging.info("epock%d loss %f",i,result[1])
-                logging.debug(result[2])
-                logging.debug(result[3])
-                logging.debug(result[4])
-                logging.debug(result[5])
+                logging.debug("initial state\n"+str(result[12]))
+                logging.debug("inputs\n"+str(result[3]))
+                logging.debug("early_stop\n"+str(result[9]))
+                logging.debug("labels\n"+str(result[4]))
+                logging.debug("converted input\n"+str(result[10]))
+                logging.debug("lstm_result\n"+str(result[8]))
+                logging.debug("sentence_outs\n"+str(result[7]))
+                logging.debug("concatinated\n"+str(result[11]))
+                logging.debug("w\n "+str(result[5]))
+                logging.debug("matmal\n"+str(result[6]))
+                logging.debug("prediction\n"+str(result[2]))
             
         self.save_model()
     
@@ -269,7 +290,7 @@ class LstmSearchModel:
             if remain_docs < lstm_batch_size:
                 result=result[:remain_docs] # remove padding 
                 
-            result_vectors.append(result)
+            result_vectors.extend(list(result))
             remain_docs-=lstm_batch_size
             
         return result_vectors
