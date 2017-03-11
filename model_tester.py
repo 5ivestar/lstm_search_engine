@@ -11,10 +11,10 @@ class ModelTestingConfig(model_config.ModelConfiguration):
         self.lr=1
         self.vector_size=3
         self.keep_prob=0.5
-        self.batch_size=1
+        self.batch_size=10
         self.lstm_model_dir="model/lstm_model"
         self.scope_name="lstm_search"
-        self.max_term_seq=2
+        self.max_term_seq=5
 
 class TestModelTestingConfig(ModelTestingConfig):
     def __init__(self):
@@ -24,11 +24,12 @@ class TestModelTestingConfig(ModelTestingConfig):
         
 
 querys=[[[1,0,0]],[[0,1,0]],[[0,0,1]]]
-documents=[[[1,0,0],[0,0,0],[0,0,0]],[[0,1,0],[0,0,0],[0,0,0],[0,0,0]],[[0,0,0],[0,0,1],[0,0,0],[0,0,0]]]
-documents=[[[1,0,0]],[[0,1,0]],[[0,0,1]]]
+documents=[[[0,0,0],[0,0,0],[1,0,0]],[[0,0,0],[0,1,0],[0,0,0],[0,0,0]],[[0,0,0],[0,0,0],[0,0,0],[0,0,1]]]
+#documents=[[[1,0,0]],[[0,1,0]],[[0,0,1]]]
 
 #making index
-training_model=lstm_model.LstmSearchModel(mode="training",config=ModelTestingConfig())
+doc_size=len(documents)
+training_model=lstm_model.LstmSearchModel(doc_size,mode="training",config=ModelTestingConfig())
 training_model.set_training_data(querys,documents)
 training_model.train(1000)
 doc_vecs=training_model.get_doc_vectors()
@@ -36,7 +37,7 @@ print(doc_vecs)
 training_model.close_session()
 
 #query processing
-qp_model=lstm_model.LstmSearchModel(mode="query_processing",doc_vecs=doc_vecs,config=TestModelTestingConfig())
+qp_model=lstm_model.LstmSearchModel(doc_size,mode="query_processing",doc_vecs=doc_vecs,config=TestModelTestingConfig())
 print(qp_model.get_matching_vector([[1,0,0]]))
 print(qp_model.get_matching_vector([[0,1,0]]))
 print(qp_model.get_matching_vector([[0,0,1]]))

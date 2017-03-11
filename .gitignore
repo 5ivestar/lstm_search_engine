@@ -3,6 +3,7 @@ model/lstm_model/*
 model/w2v_model/*
 __pycache__*
 data/*
+test.py
 =======
 ﻿w2v_wiki.mod*
 kc_data.csv*
