@@ -5,6 +5,25 @@ import logging
 logging.basicConfig(level=logging.DEBUG,format="%(asctime)s %(levelname)-7s %(funcName)s %(lineno)d %(message)s")
 
 
+def save_vectors(filename,vectors):
+    with open(filename,"w") as out:
+        for vector in vectors:
+            line=""
+            for val in vector:
+                line+=str(val)+" "  
+            out.write(line+"\n")
+
+def load_vectors(filename):
+    with open(filename,"r") as f:
+        vectors=[]
+        for line in f.readlines():
+            vector=[]
+            split=line.rstrip().split(" ")
+            for val in split:
+                vector.append(float(val))
+            vectors.append(vector)
+    return vectors
+
 class ModelTestingConfig(model_config.ModelConfiguration):
     def __init__(self):
         super().__init__()
@@ -38,6 +57,14 @@ training_model.close_session()
 
 #query processing
 qp_model=lstm_model.LstmSearchModel(doc_size,mode="query_processing",doc_vecs=doc_vecs,config=TestModelTestingConfig())
+print(qp_model.get_matching_vector([[1,0,0]]))
+print(qp_model.get_matching_vector([[0,1,0]]))
+print(qp_model.get_matching_vector([[0,0,1]]))
+
+save_vectors("tmp.vec",doc_vecs)
+doc_vecs_saved=load_vectors("tmp.vec")
+qp_model=lstm_model.LstmSearchModel(doc_size,mode="query_processing",doc_vecs=doc_vecs_saved,config=TestModelTestingConfig())
+
 print(qp_model.get_matching_vector([[1,0,0]]))
 print(qp_model.get_matching_vector([[0,1,0]]))
 print(qp_model.get_matching_vector([[0,0,1]]))
