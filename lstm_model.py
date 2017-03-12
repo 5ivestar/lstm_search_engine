@@ -63,9 +63,9 @@ class LstmSearchModel:
         with tf.variable_scope(self.config.scope_name) as scope:
             self.define_training_ops(scope)
         init_op = tf.global_variables_initializer()
-        logging.debug("initialization session start")
+        logging.info("initialization session start")
         self.sess.run(init_op)
-        logging.debug("initialization session end")
+        logging.info("initialization session end")
     
     def define_training_ops(self,scope):
         logging.debug("defining variables")
@@ -202,31 +202,31 @@ class LstmSearchModel:
             #print self.make_static_len_input(query_vec_seqs,self.max_term_seq)
             result=self.sess.run([self.train_step,
                                   self.loss,
-                                  self.prediction,
-                                  self.doc_inputs,
-                                  self.labels,
-                                  self.doc_outs,
-                                  self.results_doc,
-                                  self.early_stop_doc,
-                                 self.query_inputs,
-                                 self.query_outs,
-                                 self.matmul,
-                                 self.query_outs_norm,
-                                 self.doc_outs_norm],
+#                                   self.prediction,
+#                                   self.doc_inputs,
+#                                   self.labels,
+#                                   self.doc_outs,
+#                                   self.results_doc,
+#                                   self.early_stop_doc,
+#                                  self.query_inputs,
+#                                  self.query_outs,
+#                                  self.matmul,
+#                                  self.query_hidden_norm,
+                                 self.doc_hidden_norm],
                                  feed_dict=feed,)
             logging.debug("epock%d loss %f",i,result[1])
             if i%10==0:
                 logging.info("epock%d loss %f",i,result[1])
-                logging.debug("query_inputs\n"+str(result[8]))
-                logging.debug("early_stop_doc\n"+str(result[7]))
-                logging.debug("labels\n"+str(result[4]))
-                logging.debug("doc_result\n"+str(result[6]))
-                logging.debug("doc_outs\n"+str(result[5]))
-                logging.debug("query_outs\n"+str(result[9]))
-                logging.debug("query_outs_norm\n"+str(result[11]))
-                logging.debug("doc_outs_norm\n"+str(result[12]))
-                logging.debug("matmul\n"+str(result[10]))
-                logging.debug("prediction\n"+str(result[2]))
+#                 logging.debug("query_inputs\n"+str(result[8]))
+#                 logging.debug("early_stop_doc\n"+str(result[7]))
+#                 logging.debug("labels\n"+str(result[4]))
+#                 logging.debug("doc_result\n"+str(result[6]))
+#                 logging.debug("doc_outs\n"+str(result[5]))
+#                 logging.debug("query_outs\n"+str(result[9]))
+#                 logging.debug("query_hidden_norm\n"+str(result[11]))
+#                 logging.debug("doc_hidden_norm\n"+str(result[12]))
+#                 logging.debug("matmul\n"+str(result[10]))
+#                 logging.debug("prediction\n"+str(result[2]))
             
         self.save_model()
     
