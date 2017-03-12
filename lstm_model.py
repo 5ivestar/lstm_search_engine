@@ -91,8 +91,10 @@ class LstmSearchModel:
         lstm_bcell_drop=tf.contrib.rnn.DropoutWrapper(lstm_bcell, output_keep_prob=self.keep_prob)
 
         #lstm last output will be feeded to this regression node
-        self.w_h=tf.get_variable("weight",[self.vector_size*2,2],initializer=tf.random_normal_initializer())
-        self.b_h=tf.get_variable("biase",[2],initializer=tf.random_normal_initializer())
+        self.w_q=tf.get_variable("w_q",[self.vector_size,self.vector_size],initializer=tf.random_normal_initializer())
+        self.b_q=tf.get_variable("b_q",[self.vector_size],initializer=tf.random_normal_initializer())
+        self.w_d=tf.get_variable("w_d",[self.vector_size,self.vector_size],initializer=tf.random_normal_initializer())
+        self.b_d=tf.get_variable("b_d",[self.vector_size],initializer=tf.random_normal_initializer())
         
         logging.debug("defining feedforward process")
         
@@ -122,9 +124,13 @@ class LstmSearchModel:
         else:
             self.doc_outs=tf.placeholder("float",[self.doc_size,self.vector_size])
         
+        #hidden layer
+        self.query_hidden=tf.matmul(self.query_outs,self.w_q)+self.b_q
+        self.doc_hidden=tf.matmul(self.doc_outs,self.w_d)+self.b_d
+        
         #calculating cosine similarity
-        self.query_outs_norm=self.normarize(self.query_outs)
-        self.doc_outs_norm=self.normarize(self.doc_outs)
+        self.query_hidden_norm=self.normarize(self.query_hidden)
+        self.doc_hidden_norm=self.normarize(self.doc_hidden)
         self.matmul=tf.transpose(tf.matmul(self.doc_outs,self.query_outs,transpose_b=True))
         self.prediction=tf.nn.softmax(self.matmul)
         
@@ -132,8 +138,10 @@ class LstmSearchModel:
             
             #learning
             self.loss=tf.reduce_mean(-tf.reduce_sum(self.labels*tf.log(self.prediction),reduction_indices=[1]))
+            L2_sqr=tf.nn.l2_loss(self.w_d)+tf.nn.l2_loss(self.w_q)
+            self.cost=self.loss+L2_sqr*self.config.lambda2
             logging.debug("defining optimization process")
-            self.train_step=tf.train.GradientDescentOptimizer(self.config.lr).minimize(self.loss)
+            self.train_step=tf.train.GradientDescentOptimizer(self.config.lr).minimize(self.cost)
         
         logging.debug("defining ops complete")
         

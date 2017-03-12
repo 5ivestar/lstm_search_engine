@@ -6,7 +6,8 @@ class ModelConfiguration:
         self.batch_size=100
         self.lstm_model_dir="model/lstm_model"
         self.scope_name="lstm_search"
-        self.max_term_seq=100
+        self.max_term_seq=500
+        self.lambda2=0.01
         
 class QueryProcessingModelConfiguration(ModelConfiguration):
     def __init__(self):
