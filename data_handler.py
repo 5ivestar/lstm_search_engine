@@ -22,9 +22,13 @@ class KcDataHandler:
             
             for row in reader:
                 #row[1]:page_title row[2]:section_title
-                querys.append(self.sentence_to_seqw2v(row[1]+" "+row[2],vector_cache))
+                query=self.sentence_to_seqw2v(row[1]+" "+row[2],vector_cache)
                 #row[3] content
-                documents.append(self.sentence_to_seqw2v(row[3],vector_cache)) 
+                document=self.sentence_to_seqw2v(row[3],vector_cache)
+                
+                if len(query)>0 and len(document)>0:
+                    querys.append(query)
+                    documents.append(document) 
             
         return querys,documents,vector_cache
     
