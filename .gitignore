@@ -4,6 +4,7 @@ model/w2v_model/*
 __pycache__*
 data/*
 test.py
+*.pyc
 =======
 ﻿w2v_wiki.mod*
 kc_data.csv*
