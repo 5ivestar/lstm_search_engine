@@ -5,14 +5,20 @@ import model_config as model_config
 import numpy as np
 
 class LstmSearchModel:
-    def __init__(self,doc_size,model_file=None,mode="query_processing",doc_vecs=None,config=None):
+    def __init__(self,doc_size,model_file=None,mode="query_processing",doc_vecs=None,config=None,scope_reuse=None):
         self.doc_size=doc_size
-        #we provide 2 mode
-        #training: making new model, query_processing: loading model from file and process the query
-        #no support for incremental learning
-        if mode=="training":
+        
+        #when loading from same python kernel, reuse should be True 
+        self.scope_reuse=scope_reuse
+        
+        #we provide 3 mode
+        #training: making new model, 
+        #resume_training: incremental learning 
+        #query_processing: loading model from file and process the query
+        if mode=="training" or mode=="resume_training":
             self.is_training_mode=True
             self.config=model_config.ModelConfiguration()
+            
         elif mode=="query_processing":
             if doc_vecs is None:
                 raise Error("query_processing mode need index document vectors")
@@ -37,7 +43,7 @@ class LstmSearchModel:
         else:
             self.model_file=model_file
         
-        if self.is_training_mode:
+        if mode=="training":
             logging.info(mode+" mode: initializing model...")
             self.create_lstm_model()
             self.lstm_init=True
@@ -51,23 +57,23 @@ class LstmSearchModel:
         return self.config.lstm_model_dir+"/"+"lr_%f-vector_size_%d" %(self.config.lr,self.config.vector_size)+".lstm"
     
     def load_lstm_model(self):
+        with tf.variable_scope(self.config.scope_name,reuse=self.scope_reuse) as scope:
+            self.define_ops(scope)
         saver=tf.train.Saver()
         if self.model_file is None:
             self.model_file=self.get_model_file_name()
         saver.restore(self.sess,self.model_file)
-        with tf.variable_scope(self.config.scope_name,reuse=True) as scope:
-            self.define_training_ops(scope)
         
         
     def create_lstm_model(self):
         with tf.variable_scope(self.config.scope_name) as scope:
-            self.define_training_ops(scope)
+            self.define_ops(scope)
         init_op = tf.global_variables_initializer()
         logging.info("initialization session start")
         self.sess.run(init_op)
         logging.info("initialization session end")
     
-    def define_training_ops(self,scope):
+    def define_ops(self,scope):
         logging.debug("defining variables")
         
         if self.is_training_mode:
@@ -100,8 +106,8 @@ class LstmSearchModel:
         
         #calc lstm result
         logging.debug("defining lstm process")
-        if not self.is_training_mode:
-            scope.reuse_variables()
+#         if not self.is_training_mode and self.scope_reuse:
+#             scope.reuse_variables()
         
         self.results_query,state=tf.contrib.rnn.static_rnn(
             lstm_bcell_drop
@@ -135,13 +141,14 @@ class LstmSearchModel:
         self.prediction=tf.nn.softmax(self.matmul)
         
         if self.is_training_mode:
+            self.dynamic_lr=tf.placeholder(tf.float32)
             
             #learning
             self.loss=tf.reduce_mean(-tf.reduce_sum(self.labels*tf.log(self.prediction),reduction_indices=[1]))
             L2_sqr=tf.nn.l2_loss(self.w_d)+tf.nn.l2_loss(self.w_q)
             self.cost=self.loss+L2_sqr*self.config.lambda2
             logging.debug("defining optimization process")
-            self.train_step=tf.train.GradientDescentOptimizer(self.config.lr).minimize(self.cost)
+            self.train_step=tf.train.GradientDescentOptimizer(self.dynamic_lr).minimize(self.cost)
         
         logging.debug("defining ops complete")
         
@@ -186,7 +193,11 @@ class LstmSearchModel:
         self.documents=documents
         
     def train(self,epock):
-        logging.info("training start; batch size:%d epock:%d",self.batch_size,epock)
+        lr=self.config.lr
+        loss_sum=0
+        prev_loss_sum=10000000
+        
+        logging.info("training start; batch size:%d epock:%d learning rate:%f",self.batch_size,epock,lr)
         for i in range(epock):
             query_vec_seq,labels=self.get_minibatch()
             query_term_seq_lens=[len(vectors) for vectors in query_vec_seq]
@@ -198,36 +209,23 @@ class LstmSearchModel:
                   ,self.early_stop_doc: self.limit_term_seq_lens(doc_term_seq_lens)
                   ,self.labels: labels
                   ,self.keep_prob: self.config.keep_prob
+                  ,self.dynamic_lr:lr
                  }
             #print self.make_static_len_input(query_vec_seqs,self.max_term_seq)
-            result=self.sess.run([self.train_step,
-                                  self.loss,
-#                                   self.prediction,
-#                                   self.doc_inputs,
-#                                   self.labels,
-#                                   self.doc_outs,
-#                                   self.results_doc,
-#                                   self.early_stop_doc,
-#                                  self.query_inputs,
-#                                  self.query_outs,
-#                                  self.matmul,
-#                                  self.query_hidden_norm,
-                                 self.doc_hidden_norm],
-                                 feed_dict=feed,)
+            result=self.sess.run([self.train_step,self.loss],feed_dict=feed,)
             logging.debug("epock%d loss %f",i,result[1])
+            loss_sum+=result[1]
             if i%10==0:
+                if i%50==0:
+                    self.save_model()
                 logging.info("epock%d loss %f",i,result[1])
-#                 logging.debug("query_inputs\n"+str(result[8]))
-#                 logging.debug("early_stop_doc\n"+str(result[7]))
-#                 logging.debug("labels\n"+str(result[4]))
-#                 logging.debug("doc_result\n"+str(result[6]))
-#                 logging.debug("doc_outs\n"+str(result[5]))
-#                 logging.debug("query_outs\n"+str(result[9]))
-#                 logging.debug("query_hidden_norm\n"+str(result[11]))
-#                 logging.debug("doc_hidden_norm\n"+str(result[12]))
-#                 logging.debug("matmul\n"+str(result[10]))
-#                 logging.debug("prediction\n"+str(result[2]))
-            
+
+                if loss_sum > prev_loss_sum:
+                    #lr/=2.0
+                    logging.info("learning rate change: %f",lr)
+                prev_loss_sum=loss_sum
+                loss_sum=0
+                
         self.save_model()
     
     def limit_term_seq_lens(self,term_seq_lens):
@@ -252,7 +250,6 @@ class LstmSearchModel:
         return static_len_input
     
     def save_model(self):
-        print(self.model_file)
         tf.train.Saver().save(self.sess,self.model_file)
         logging.info("model saved: "+self.model_file)
     

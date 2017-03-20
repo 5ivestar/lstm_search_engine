@@ -8,12 +8,21 @@ class KcDataHandler:
         self.stemmer=stemmer
         self.w2v_model=w2v_model
         
+        #initialize variable
+        self.querys=[]
+        self.documents=[]
+        self.urls=[]
+        
     #vector_cache: cacheing word embedding vector as tensorflow static vector.
     #querys and documents reference vector_cache to build their vector sequence
     def make_training_data(self):
+        if len(self.querys)>0 and len(self.documents)>0 and len(self.urls)>0:
+            return self.querys,self.documents,self.urls
+        
         vector_cache={}
-        querys=[]
-        documents=[]
+        self.querys=[]
+        self.documents=[]
+        selfurls=[]
         with codecs.open(self.file_name,encoding="utf-8") as f:
             reader=csv.reader(f)
             
@@ -27,11 +36,18 @@ class KcDataHandler:
                 document=self.sentence_to_seqw2v(row[3],vector_cache)
                 
                 if len(query)>0 and len(document)>0:
-                    querys.append(query)
-                    documents.append(document) 
-            
-        return querys,documents,vector_cache
+                    self.querys.append(query)
+                    self.documents.append(document) 
+                    self.urls.append(row[0])
+        
+        return self.querys,self.documents,self.urls
     
+    
+    def get_data_num(self):
+        self.make_training_data()
+        assert len(self.querys)==len(self.documents)
+        assert len(self.documents)==len(self.urls)
+        return len(self.querys)
     
     def sentence_to_seqw2v(self,sentence,vector_cache):
         tokens=self.stemmer.get_stemed_tokens(sentence)

@@ -51,6 +51,12 @@ doc_size=len(documents)
 training_model=lstm_model.LstmSearchModel(doc_size,mode="training",config=ModelTestingConfig())
 training_model.set_training_data(querys,documents)
 training_model.train(1000)
+training_model.close_session()
+
+#close and resume training 
+training_model=lstm_model.LstmSearchModel(doc_size,mode="resume_training",config=ModelTestingConfig())
+training_model.set_training_data(querys,documents)
+training_model.train(50)
 doc_vecs=training_model.get_doc_vectors()
 print(doc_vecs)
 training_model.close_session()
