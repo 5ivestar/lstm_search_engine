@@ -6,7 +6,6 @@ import numpy as np
 
 class LstmSearchModel:
     def __init__(self,doc_size,model_file=None,mode="query_processing",doc_vecs=None,config=None,scope_reuse=None):
-        self.doc_size=doc_size
         
         #when loading from same python kernel, reuse should be True 
         self.scope_reuse=scope_reuse
@@ -32,16 +31,27 @@ class LstmSearchModel:
         
         if config is not None:
             self.config=config
-            
-        self.vector_size=self.config.vector_size
-        self.batch_size=self.config.batch_size
-        self.max_term_seq=self.config.max_term_seq
-        self.sess=tf.Session()
         
         if model_file is None:
             self.model_file=self.get_model_file_name()
         else:
             self.model_file=model_file
+        
+       
+        self.vector_size=self.config.vector_size
+        self.batch_size=self.config.batch_size
+        self.max_term_seq=self.config.max_term_seq
+        
+        if mode=="training" or mode=="resume_training":
+            #when training, doc_size is number of negative sampling documents
+            #we set this value to be equal to batch_size
+            self.doc_size=self.batch_size
+        else:
+            self.doc_size=doc_size
+        
+        self.sess=tf.Session()
+        
+        
         
         if mode=="training":
             logging.info(mode+" mode: initializing model...")
@@ -57,23 +67,25 @@ class LstmSearchModel:
         return self.config.lstm_model_dir+"/"+"lr_%f-vector_size_%d" %(self.config.lr,self.config.vector_size)+".lstm"
     
     def load_lstm_model(self):
-        with tf.variable_scope(self.config.scope_name,reuse=self.scope_reuse) as scope:
-            self.define_ops(scope)
-        saver=tf.train.Saver()
         if self.model_file is None:
             self.model_file=self.get_model_file_name()
-        saver.restore(self.sess,self.model_file)
+        with tf.variable_scope(self.config.scope_name,reuse=self.scope_reuse) as scope:
+            self.define_variable(scope)
+            self.define_ops(scope)
         
+        saver=tf.train.Saver()
+        saver.restore(self.sess,self.model_file)
         
     def create_lstm_model(self):
         with tf.variable_scope(self.config.scope_name) as scope:
+            self.define_variable(scope)
             self.define_ops(scope)
         init_op = tf.global_variables_initializer()
         logging.info("initialization session start")
         self.sess.run(init_op)
         logging.info("initialization session end")
     
-    def define_ops(self,scope):
+    def define_variable(self,scope):
         logging.debug("defining variables")
         
         if self.is_training_mode:
@@ -93,24 +105,25 @@ class LstmSearchModel:
         self.keep_prob=tf.placeholder(tf.float32)
         
         #define lstm
-        lstm_bcell=tf.contrib.rnn.BasicLSTMCell(self.vector_size,self.doc_size)
-        lstm_bcell_drop=tf.contrib.rnn.DropoutWrapper(lstm_bcell, output_keep_prob=self.keep_prob)
+        self.lstm_bcell=tf.contrib.rnn.BasicLSTMCell(self.vector_size,self.doc_size)
+        self.lstm_bcell_drop=tf.contrib.rnn.DropoutWrapper(self.lstm_bcell, output_keep_prob=self.keep_prob)
 
         #lstm last output will be feeded to this regression node
         self.w_q=tf.get_variable("w_q",[self.vector_size,self.vector_size],initializer=tf.random_normal_initializer())
         self.b_q=tf.get_variable("b_q",[self.vector_size],initializer=tf.random_normal_initializer())
         self.w_d=tf.get_variable("w_d",[self.vector_size,self.vector_size],initializer=tf.random_normal_initializer())
         self.b_d=tf.get_variable("b_d",[self.vector_size],initializer=tf.random_normal_initializer())
-        
+    
+    def define_ops(self,scope):
         logging.debug("defining feedforward process")
         
         #calc lstm result
         logging.debug("defining lstm process")
-#         if not self.is_training_mode and self.scope_reuse:
-#             scope.reuse_variables()
-        
+        if not self.is_training_mode and self.scope_reuse:
+            scope.reuse_variables()
+         
         self.results_query,state=tf.contrib.rnn.static_rnn(
-            lstm_bcell_drop
+            self.lstm_bcell_drop
             ,self.convert_to_lstm_input(self.query_inputs,self.batch_size)
             ,sequence_length=self.early_stop_query
             ,dtype=tf.float32
@@ -120,7 +133,7 @@ class LstmSearchModel:
         if self.is_training_mode:
             scope.reuse_variables()
             self.results_doc,state=tf.contrib.rnn.static_rnn(
-                lstm_bcell_drop
+                self.lstm_bcell_drop
                 ,self.convert_to_lstm_input(self.doc_inputs,self.doc_size)
                 ,sequence_length=self.early_stop_doc
                 ,dtype=tf.float32
@@ -133,12 +146,19 @@ class LstmSearchModel:
         #hidden layer
         self.query_hidden=tf.matmul(self.query_outs,self.w_q)+self.b_q
         self.doc_hidden=tf.matmul(self.doc_outs,self.w_d)+self.b_d
+        #using document hidden layer 
+        self.query_hidden_cross=tf.matmul(self.query_outs,self.w_d)+self.b_d
         
         #calculating cosine similarity
         self.query_hidden_norm=self.normarize(self.query_hidden)
         self.doc_hidden_norm=self.normarize(self.doc_hidden)
-        self.matmul=tf.transpose(tf.matmul(self.doc_outs,self.query_outs,transpose_b=True))
+        self.matmul=tf.transpose(tf.matmul(self.doc_hidden_norm,self.query_hidden_norm,transpose_b=True))
         self.prediction=tf.nn.softmax(self.matmul)
+        
+        #calculating cosine similarity for cross too
+        self.query_hidden_norm_cross=self.normarize(self.query_hidden_cross)
+        self.matmul=tf.transpose(tf.matmul(self.doc_hidden_norm,self.query_hidden_norm_cross,transpose_b=True))
+        self.prediction_cross=tf.nn.softmax(self.matmul)
         
         if self.is_training_mode:
             self.dynamic_lr=tf.placeholder(tf.float32)
@@ -177,15 +197,30 @@ class LstmSearchModel:
 
     # x: query vector seq
     def get_minibatch(self):
+        if self.batch_size>len(self.documents):
+            raise Exception("batch size needs to be smaller than training document size")
+        
         querys=[]
         labels=[]
-        for _ in range(self.batch_size):
+        documents=[]
+        in_batch=[0]*len(self.documents)
+        i=0
+        while i < self.batch_size:
             random_index=random.randint(0,len(self.querys)-1)
+            
+            #avoid putting same data
+            if in_batch[random_index]==1:
+                continue
+            
             querys.append(self.querys[random_index])
-            label=[0]*len(self.querys)
-            label[random_index]=1 #one hot vector
+            documents.append(self.documents[random_index])
+            label=[0]*self.batch_size
+            label[i]=1 #one hot vector
             labels.append(label)
-        return querys,labels
+            
+            in_batch[random_index]=1
+            i+=1
+        return querys,documents,labels
     
     def set_training_data(self,querys, documents):
         assert len(querys)==len(documents)
@@ -199,12 +234,12 @@ class LstmSearchModel:
         
         logging.info("training start; batch size:%d epock:%d learning rate:%f",self.batch_size,epock,lr)
         for i in range(epock):
-            query_vec_seq,labels=self.get_minibatch()
+            query_vec_seq,doc_vec_seq,labels=self.get_minibatch()
             query_term_seq_lens=[len(vectors) for vectors in query_vec_seq]
-            doc_term_seq_lens=[len(vectors) for vectors in self.documents]
+            doc_term_seq_lens=[len(vectors) for vectors in doc_vec_seq]
             
             feed={self.query_inputs:self.make_static_len_input(query_vec_seq, self.max_term_seq)
-                  ,self.doc_inputs: self.make_static_len_input(self.documents,self.max_term_seq)
+                  ,self.doc_inputs: self.make_static_len_input(doc_vec_seq,self.max_term_seq)
                   ,self.early_stop_query: self.limit_term_seq_lens(query_term_seq_lens)
                   ,self.early_stop_doc: self.limit_term_seq_lens(doc_term_seq_lens)
                   ,self.labels: labels
@@ -212,7 +247,7 @@ class LstmSearchModel:
                   ,self.dynamic_lr:lr
                  }
             #print self.make_static_len_input(query_vec_seqs,self.max_term_seq)
-            result=self.sess.run([self.train_step,self.loss],feed_dict=feed,)
+            result=self.sess.run([self.train_step,self.loss],feed_dict=feed)
             logging.debug("epock%d loss %f",i,result[1])
             loss_sum+=result[1]
             if i%10==0:
@@ -225,7 +260,15 @@ class LstmSearchModel:
                     logging.info("learning rate change: %f",lr)
                 prev_loss_sum=loss_sum
                 loss_sum=0
-                
+        
+        #for debugging
+        feed[self.query_inputs]=self.make_static_len_input([self.querys[0]]*self.batch_size, self.max_term_seq)
+        feed[self.early_stop_query]=self.limit_term_seq_lens([len(vec) for vec in [self.querys[0]]]*self.batch_size)
+        result=self.sess.run([self.query_outs,self.w_q,self.query_inputs],feed_dict=feed)      
+        logging.debug("query out\n"+str(result[0][0]))
+        logging.debug("w_q\n"+str(result[1]))
+        logging.debug("query_input\n"+str(result[2][0]))
+        
         self.save_model()
     
     def limit_term_seq_lens(self,term_seq_lens):
@@ -257,27 +300,50 @@ class LstmSearchModel:
         self.sess.close()
         logging.info("session closed")
     
-    def get_matching_vector(self,query_w2v_seq):
+    def get_matching_vector(self,query_w2v_seq,doc_type="query"):
         
         feed={self.query_inputs: self.make_static_len_input([query_w2v_seq],self.max_term_seq)
               ,self.early_stop_query: self.limit_term_seq_lens([len(query_w2v_seq)])
               ,self.doc_outs: self.doc_vecs
               ,self.keep_prob: 1.0 #this is not train
              }
-        #print self.make_static_len_input(query_vec_seqs,self.max_term_seq)
-        result=self.sess.run(self.prediction,feed_dict=feed)
-        return result
+        if doc_type=="query":
+            result=self.sess.run([self.prediction,self.query_outs,self.w_q,self.query_inputs],feed_dict=feed)
+        elif doc_type=="document":
+            result=self.sess.run([self.prediction_cross,self.query_outs,self.w_q,self.query_inputs],feed_dict=feed)
+        else:
+            raise Exception("document type should be query or document: "+doc_type )
+            
+        
+        #debugging
+        logging.debug("query outs\n"+str(result[1][0]))
+        logging.debug("w_q\n"+str(result[2]))
+        logging.debug("query_input\n"+str(result[3][0]))
+        
+        return result[0]
         
         
     #return all documents vectors which wre used in training 
     def get_doc_vectors(self):
-        doc_term_seq_lens=[len(v) for v in self.documents]
-        feed={self.doc_inputs: self.make_static_len_input(self.documents,self.max_term_seq)
-              ,self.early_stop_doc: self.limit_term_seq_lens(doc_term_seq_lens)
-              ,self.keep_prob: 1.0 #this is not train
-             }
-        
-        result_vectors=self.sess.run(self.doc_outs,feed_dict=feed)
-        
-        return result_vectors
+        chank_start=0
+        doc_vecs=[]
+        while chank_start<len(self.documents):
+            if chank_start+self.batch_size<len(self.documents):
+                doc_term_seq=self.documents[chank_start:chank_start+self.doc_size]
+            else:
+                rest=self.doc_size-(len(self.documents)-chank_start)
+                doc_term_seq=self.documents[chank_start:]
+                #padding
+                doc_term_seq.extend([[[0.0]*self.vector_size]*self.max_term_seq]*rest)
+                
+            doc_term_seq_lens=[len(v) for v in doc_term_seq ]
+            feed={self.doc_inputs: self.make_static_len_input(doc_term_seq,self.max_term_seq)
+                  ,self.early_stop_doc: self.limit_term_seq_lens(doc_term_seq_lens)
+                  ,self.keep_prob: 1.0 #this is not train
+                 }
+            
+            result=self.sess.run(self.doc_outs,feed_dict=feed)
+            doc_vecs.extend(list(result))
+            chank_start+=self.doc_size
+        return doc_vecs[:-rest]
 

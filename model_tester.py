@@ -30,7 +30,7 @@ class ModelTestingConfig(model_config.ModelConfiguration):
         self.lr=1
         self.vector_size=3
         self.keep_prob=0.5
-        self.batch_size=10
+        self.batch_size=3
         self.lstm_model_dir="model/lstm_model"
         self.scope_name="lstm_search"
         self.max_term_seq=5
@@ -50,11 +50,11 @@ documents=[[[0,0,0],[0,0,0],[1,0,0]],[[0,0,0],[0,1,0],[0,0,0],[0,0,0]],[[0,0,0],
 doc_size=len(documents)
 training_model=lstm_model.LstmSearchModel(doc_size,mode="training",config=ModelTestingConfig())
 training_model.set_training_data(querys,documents)
-training_model.train(1000)
+training_model.train(1)
 training_model.close_session()
 
 #close and resume training 
-training_model=lstm_model.LstmSearchModel(doc_size,mode="resume_training",config=ModelTestingConfig())
+training_model=lstm_model.LstmSearchModel(doc_size,mode="resume_training",config=ModelTestingConfig(),scope_reuse=True)
 training_model.set_training_data(querys,documents)
 training_model.train(50)
 doc_vecs=training_model.get_doc_vectors()
@@ -62,14 +62,14 @@ print(doc_vecs)
 training_model.close_session()
 
 #query processing
-qp_model=lstm_model.LstmSearchModel(doc_size,mode="query_processing",doc_vecs=doc_vecs,config=TestModelTestingConfig())
+qp_model=lstm_model.LstmSearchModel(doc_size,mode="query_processing",doc_vecs=doc_vecs,config=TestModelTestingConfig(),scope_reuse=True)
 print(qp_model.get_matching_vector([[1,0,0]]))
 print(qp_model.get_matching_vector([[0,1,0]]))
 print(qp_model.get_matching_vector([[0,0,1]]))
 
 save_vectors("tmp.vec",doc_vecs)
 doc_vecs_saved=load_vectors("tmp.vec")
-qp_model=lstm_model.LstmSearchModel(doc_size,mode="query_processing",doc_vecs=doc_vecs_saved,config=TestModelTestingConfig())
+qp_model=lstm_model.LstmSearchModel(doc_size,mode="query_processing",doc_vecs=doc_vecs_saved,config=TestModelTestingConfig(),scope_reuse=True)
 
 print(qp_model.get_matching_vector([[1,0,0]]))
 print(qp_model.get_matching_vector([[0,1,0]]))

@@ -33,13 +33,13 @@ class VectorSearchEngine:
     def get_doc_vecs_file_name(self):
         return "index.docvecs"
     
-    def learning_and_indexing(self):
+    def learning_and_indexing(self,epock):
         if self.lstm_model is None:
             raise Exception("model isn't initialized")
         
         querys,documents,self.urls=self.data_handler.make_training_data()
         self.lstm_model.set_training_data(querys,documents)
-        self.lstm_model.train(50)
+        self.lstm_model.train(epock)
  
         self.docvectors=self.lstm_model.get_doc_vectors()
         self.save_doc_vectors(self.doc_vec_file_name)
@@ -69,15 +69,16 @@ class VectorSearchEngine:
                 f.write(line+"\n")
         logging.info("saveing docvec file "+file_name)
     
-    def search(self,query,result_size=1):
+    def search(self,query,result_size=1,text_type="query"):
         if self.lstm_model is None:
             raise Excepion("model isn't initialized")
         query_vec_seq=self.data_handler.sentence_to_seqw2v(query,{})
-        matching_vec=self.lstm_model.get_matching_vector(query_vec_seq)[0].tolist()
+        matching_vec=self.lstm_model.get_matching_vector(query_vec_seq,doc_type=text_type)[0].tolist()
         
         merge_queue=[ [i,val] for i,val in enumerate(matching_vec)]
         id=sorted(merge_queue,key=lambda x:x[1],reverse=True)
         return self.urls[id[0][0]],self.urls[id[1][0]]
+    
     
     def close_engine(self):
         self.lstm_model.close_session()

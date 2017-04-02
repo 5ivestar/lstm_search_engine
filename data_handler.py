@@ -31,9 +31,9 @@ class KcDataHandler:
             
             for row in reader:
                 #row[1]:page_title row[2]:section_title
-                query=self.sentence_to_seqw2v(row[1]+" "+row[2],vector_cache)
+                query=self.sentence_to_seqw2v(row[1],vector_cache)
                 #row[3] content
-                document=self.sentence_to_seqw2v(row[3],vector_cache)
+                document=self.sentence_to_seqw2v(row[2],vector_cache)
                 
                 if len(query)>0 and len(document)>0:
                     self.querys.append(query)
